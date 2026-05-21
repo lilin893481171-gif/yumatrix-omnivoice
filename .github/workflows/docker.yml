@@ -1,0 +1,26 @@
+name: Build and Push Docker Image
+
+# 触发条件：只要 main 分支有代码更新，就自动执行
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 白嫖 GitHub 的高配 Ubuntu 服务器
+    steps:
+    - name: 检出最新代码
+      uses: actions/checkout@v3
+
+    - name: 登录 Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: 自动打包并推送到 Docker Hub
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: lilin893481171/yumatrix-omnivoice:latest
