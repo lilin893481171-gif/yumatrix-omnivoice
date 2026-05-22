@@ -1,20 +1,21 @@
-# 使用英伟达官方 PyTorch 镜像 (内置了 PyTorch 2.1.0 和 CUDA 11.8，非常稳)
+# 使用英伟达官方 PyTorch 镜像
 FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 
-# 设置工作目录
 WORKDIR /app
 
-# 安装必要的系统底层库 (ffmpeg 是处理音频切片的核心生命线)
-RUN apt-get update && apt-get install -y ffmpeg git wget
+# 1. 补齐底层的系统音频库 libsndfile1 (soundfile 极度依赖它)
+RUN apt-get update && apt-get install -y ffmpeg git wget libsndfile1
 
-# 🚀 核心修改：安装网关通信库和音频转码库
-RUN pip install runpod requests soundfile
+# 2. 强行拉满火力：升级到 OmniVoice 官方要求的 PyTorch 2.8.0 和 CUDA 12.8
+RUN pip install torch==2.8.0+cu128 torchaudio==2.8.0+cu128 --extra-index-url https://download.pytorch.org/whl/cu128
+RUN pip install runpod requests soundfile accelerate transformers
 
-# 🚀 核心修改：直接从 GitHub 拉取 OmniVoice 最新源码并安装
+# 3. 安装 OmniVoice
 RUN pip install git+https://github.com/k2-fsa/OmniVoice.git
 
-# 把咱们刚才写好的 终极版 handler.py 复制进镜像
 COPY handler.py /app/handler.py
 
-# 容器启动命令 (-u 参数保证日志能实时推送到 RunPod 后台，方便我们排错)
+# 确保 HuggingFace 下载数十 GB 模型权重时有权限写入缓存目录
+ENV HF_HOME="/app/hf_cache"
+
 CMD [ "python", "-u", "/app/handler.py" ]
