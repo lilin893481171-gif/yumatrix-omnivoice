@@ -3,31 +3,34 @@ import base64
 import requests
 import tempfile
 import os
+import traceback
 
-# 👉 引入官方必需的库
-from omnivoice import OmniVoice
-import torch
-import soundfile as sf
+print("🚀 容器启动，开始执行全局环境预热...")
 
-# ==========================================
-# 🌟 第一步：全局预热区 (冷启动时加载模型)
-# ==========================================
-print("🚀 正在将 OmniVoice 权重载入 GPU 显存...")
+model = None
+init_error = None
 
-# 加载官方 OmniVoice 模型（自动使用半精度 float16 以节省显存并提速）
-model = OmniVoice.from_pretrained(
-    "k2-fsa/OmniVoice", 
-    device_map="cuda:0", 
-    dtype=torch.float16,
-    load_asr=True # 如果你不传 ref_text，模型需要 Whisper 来自动识别干声
-)
-
-print("✅ OmniVoice 引擎就绪，等待网关指令！")
+# 🛡️ 架构师的防弹衣：把极其危险的全局加载包起来
+try:
+    from omnivoice import OmniVoice
+    import torch
+    import soundfile as sf
+    print("✅ 依赖包导入成功，准备从 HuggingFace 拉取 OmniVoice 模型 (这可能需要几分钟)...")
+    
+    # 自动下载并加载官方模型
+    model = OmniVoice.from_pretrained(
+        "k2-fsa/OmniVoice", 
+        device_map="cuda:0", 
+        dtype=torch.float16,
+        load_asr=True
+    )
+    print("✅ OmniVoice 引擎就绪，等待网关指令！")
+except Exception as e:
+    init_error = traceback.format_exc()
+    print(f"🚨 致命错误：全局模型预热失败！\n{init_error}")
 
 def download_reference_audio(url, save_path):
-    """从图床极速下载参考干声"""
-    if not url: 
-        return False
+    if not url: return False
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
@@ -38,10 +41,11 @@ def download_reference_audio(url, save_path):
         print(f"❌ 下载干声失败: {e}")
         return False
 
-# ==========================================
-# ⚡ 第二步：核心路由与推理函数
-# ==========================================
 def handler(job):
+    # 💡 核心机制：如果容器启动时模型就炸了，直接把错误通过 CF 网关扔回给你的 React 前端！
+    if init_error:
+        return {"error": f"云端模型加载失败，请检查环境依赖:\n{init_error}"}
+
     job_input = job.get('input', {})
     prompt_text = job_input.get('prompt', '')
     ref_audio_url = job_input.get('reference_audio', '')
@@ -56,45 +60,31 @@ def handler(job):
             ref_audio_path = os.path.join(temp_dir, "ref_audio.wav")
             out_audio_path = os.path.join(temp_dir, "output.wav")
             
-            # 1. 尝试下载前端传来的干声
             has_ref = False
             if ref_audio_url:
                 has_ref = download_reference_audio(ref_audio_url, ref_audio_path)
             
-            # 2. 🚀 引擎轰鸣：调用 OmniVoice 模型生成音频
+            # 🚀 引擎轰鸣
             if has_ref:
-                # 【克隆模式】带有参考音频
-                audio_output = model.generate(
-                    text=prompt_text, 
-                    ref_audio=ref_audio_path
-                )
+                audio_output = model.generate(text=prompt_text, ref_audio=ref_audio_path)
             else:
-                # 【自动模式】无参考音频，由模型盲盒生成
-                audio_output = model.generate(
-                    text=prompt_text
-                )
+                audio_output = model.generate(text=prompt_text)
                 
-            # 官方模型返回的是 numpy 数组列表，取第一个，采样率固定 24kHz
             audio_np = audio_output[0]
-            
-            # 3. 将矩阵数据保存为 WAV 文件，再转成前端需要的 Base64
             sf.write(out_audio_path, audio_np, 24000)
             
             with open(out_audio_path, "rb") as audio_file:
                 audio_base64 = base64.b64encode(audio_file.read()).decode('utf-8')
             
-            # 4. 完美封装，返回给前端
             return {
                 "status": "success",
                 "audio_base64": audio_base64,
                 "format": "wav"
             }
-
     except Exception as e:
-        import traceback
         error_detail = traceback.format_exc()
         print(f"🚨 推理崩溃:\n{error_detail}")
-        return {"error": f"模型推理异常: {str(e)}"}
+        return {"error": f"模型推理异常: {error_detail}"}
 
 if __name__ == "__main__":
     runpod.serverless.start({"handler": handler})
