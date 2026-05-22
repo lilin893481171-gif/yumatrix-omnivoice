@@ -4,64 +4,67 @@ import requests
 import tempfile
 import os
 
-# 🌟 1. 模拟引入 OmniVoice 核心库 (实际部署时环境里会有)
+# 🌟 1. 模拟引入 OmniVoice 核心库
 # import torch
 # from omnivoice import OmniVoiceModel 
 
-# 🌟 2. 预加载模型到显存 (这步极其关键，保证冷启动后的极速推理)
+# 🌟 2. 预加载模型到显存
 print("正在将 OmniVoice 权重载入 GPU 显存...")
 # model = OmniVoiceModel.from_pretrained("k2-fsa/omnivoice")
 # model.to("cuda")
 
 def download_reference_audio(url, save_path):
     """从你的 Cloudinary 图床下载用户上传的参考干声"""
-    response = requests.get(url)
-    with open(save_path, 'wb') as f:
-        f.write(response.content)
+    if not url: 
+        return False # 排雷：如果没有URL，直接跳过，不报错
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status() # 检查图床链接是否真的有效
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+        print("✅ 参考干声下载成功！")
+        return True
+    except Exception as e:
+        print(f"❌ 下载干声失败: {e}")
+        return False
 
 def handler(job):
     """
-    RunPod 唯一的入口函数：接收前端 Payload -> 唤醒显卡 -> 返回音频 Base64
+    RunPod 唯一的入口函数
     """
-    job_input = job['input']
+    # 完美契合 RunPod 规范，提取 input 盒子
+    job_input = job.get('input', {})
     
     # 获取前端传来的参数
     prompt_text = job_input.get('prompt', '')
     ref_audio_url = job_input.get('reference_audio', '')
     
-    if not prompt_text or not ref_audio_url:
-        return {"error": "缺少关键参数：文案(prompt) 或 参考音频(reference_audio) 不能为空！"}
+    print(f"🎯 收到前端任务！准备生成的文案：{prompt_text}")
+
+    # 只要有文案就可以跑，不强制要求上传干声（方便测试）
+    if not prompt_text:
+        return {"error": "缺少关键参数：要配音的长文案不能为空！"}
 
     try:
-        # 创建一个临时目录来存放下载的干声和生成的音频
         with tempfile.TemporaryDirectory() as temp_dir:
             ref_audio_path = os.path.join(temp_dir, "ref_audio.wav")
             out_audio_path = os.path.join(temp_dir, "output.wav")
             
-            # 1. 下载前端图床里的参考录音
-            download_reference_audio(ref_audio_url, ref_audio_path)
+            # 1. 尝试下载干声
+            if ref_audio_url:
+                download_reference_audio(ref_audio_url, ref_audio_path)
             
-            # 2. 🚀 引擎轰鸣：调用 OmniVoice 进行零样本声音克隆与合成！
-            # 这里的伪代码展示了真正的底层调用逻辑
-            # audio_tensor = model.synthesize(
-            #     text=prompt_text, 
-            #     reference_audio=ref_audio_path,
-            #     language="auto" # 自动识别多国语言
-            # )
-            # torchaudio.save(out_audio_path, audio_tensor, sample_rate=24000)
+            # 2. 🚀 引擎轰鸣 (这里是未来你要填写真正 OmniVoice 推理代码的地方)
+            # ... 
             
-            # (测试阶段模拟文件生成)
-            with open(out_audio_path, "wb") as f:
-                f.write(b"RIFF_MOCK_WAV_DATA_OMNIVOICE_SUCCESS")
-
-            # 3. 将生成的 WAV 音频转为 Base64 字符串
-            with open(out_audio_path, "rb") as audio_file:
-                audio_base64 = base64.b64encode(audio_file.read()).decode('utf-8')
+            # 3. 排雷核心：使用一段绝对合法、浏览器能直接播放的极简 WAV 文件的 Base64 编码
+            # 等你接上真模型后，把这个变量替换成你生成的真音频 Base64 即可！
+            real_valid_wav_base64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
             
             # 4. 完美返回给你的 CF Worker 和 前端
             return {
                 "status": "success",
-                "audio_base64": audio_base64,
+                "audio_base64": real_valid_wav_base64,
                 "format": "wav"
             }
 
