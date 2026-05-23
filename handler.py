@@ -71,7 +71,7 @@ def handler(job):
                 audio_output = model.generate(text=prompt_text)
                 
             audio_np = audio_output[0]
-            sf.write(out_audio_path, audio_np, 24000)
+            sf.write(out_audio_path, audio_np, 24000, subtype='PCM_16')
             
             with open(out_audio_path, "rb") as audio_file:
                 audio_base64 = base64.b64encode(audio_file.read()).decode('utf-8')
