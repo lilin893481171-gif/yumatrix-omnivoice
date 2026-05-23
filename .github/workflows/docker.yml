@@ -23,4 +23,4 @@ jobs:
       with:
         context: .
         push: true
-        tags: lilin893481171/yumatrix-omnivoice:latest
+        tags: lilin893481171/yumatrix-omnivoice:v1
